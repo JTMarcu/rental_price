@@ -5,19 +5,10 @@ from webdriver_manager.microsoft import EdgeChromiumDriverManager
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
-import logging
-
-# Set up logging
-logging.basicConfig(
-    filename='scraper_log.txt', 
-    filemode='w', 
-    format='%(asctime)s - %(levelname)s - %(message)s', 
-    level=logging.INFO
-)
 
 # Set up Edge WebDriver
 edge_options = Options()
-edge_options.add_argument("--headless")  # Run in headless mode
+# edge_options.add_argument("--headless")  # Uncomment to run without browser window
 edge_options.add_argument("--disable-gpu")
 edge_options.add_argument("--no-sandbox")
 edge_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
@@ -32,9 +23,7 @@ listings_per_page = 40
 
 while True:
     url = f'https://www.apartments.com/apartments-condos/san-diego-ca/min-2-bedrooms-2-bathrooms-2000-to-3500/{page}/'
-    log_msg = f"Loading page {page}: {url}"
-    print(f"\n{log_msg}")
-    logging.info(log_msg)
+    print(f"\nLoading page {page}: {url}")
     
     driver.get(url)
     time.sleep(10)  # You can replace this with WebDriverWait later
@@ -43,12 +32,10 @@ while True:
     soup = BeautifulSoup(html, 'html.parser')
     listings = soup.find_all('article')
 
-    found_msg = f"Found {len(listings)} listings on page {page}"
-    print(found_msg)
-    logging.info(found_msg)
+    print(f"Found {len(listings)} listings on page {page}")
     
     if len(listings) == 0:
-        logging.info("No listings found — breaking loop.")
+        print("No listings found — breaking loop.")
         break
 
     for listing in listings:
@@ -68,7 +55,7 @@ while True:
         })
 
     if len(listings) < listings_per_page:
-        logging.info("Reached last page.")
+        print("Reached last page.")
         break
 
     page += 1
@@ -76,10 +63,7 @@ while True:
 # Save to CSV
 df = pd.DataFrame(all_rentals)
 df.to_csv('san_diego_rentals_auto_paginated.csv', index=False)
-completion_msg = "Scraping complete. Data saved to san_diego_rentals_auto_paginated.csv"
-print(completion_msg)
-logging.info(completion_msg)
+print("Scraping complete. Data saved to san_diego_rentals_auto_paginated.csv")
 
 # Close the browser
 driver.quit()
-logging.info("Browser session closed.")
