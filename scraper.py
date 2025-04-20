@@ -121,10 +121,16 @@ df['SqFt'] = pd.to_numeric(df['SqFt'], errors='coerce')
 
 # Save to CSV
 df = pd.DataFrame(all_units)
-df.to_csv('san_diego_unit_level_rentals.csv', index=False)
-completion_msg = "Scraping complete. Data saved to san_diego_unit_level_rentals.csv"
-print(completion_msg)
-logging.info(completion_msg)
+
+from datetime import datetime
+
+# Format filename with current date
+today_str = datetime.today().strftime('%Y-%m-%d')
+filename = f'san_diego_rentals_{today_str}.csv'
+
+df.to_csv(filename, index=False)
+print(f"✅ Scraping complete. Data saved to {filename}")
+logging.info(f"Scraping complete. Data saved to {filename}")
 
 # Close the browser
 driver.quit()
