@@ -99,6 +99,25 @@ while True:
         break
 
     page += 1
+    
+# Clean Price: extract lowest value from range
+def extract_low_price(price):
+    if pd.isna(price):
+        return None
+    price = re.sub(r'[^\d\-]', '', str(price))  # Keep only digits and dashes
+    if '-' in price:
+        low = price.split('-')[0].strip()
+        return float(low)
+    elif price.isdigit():
+        return float(price)
+    return None
+
+df['Price'] = df['Price'].apply(extract_low_price)
+
+# Clean SqFt: extract numeric square footage
+df['SqFt'] = df['SqFt'].astype(str).str.extract(r'(\d+)', expand=False)
+df['SqFt'] = pd.to_numeric(df['SqFt'], errors='coerce')
+
 
 # Save to CSV
 df = pd.DataFrame(all_units)
