@@ -124,7 +124,7 @@ def clean_data(df):
     df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
     df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
     df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
-    df['ZipCode'] = df['Address'].str.extract(r'(\b\d{5}\b)')
+    df['ZipCode'] = df['Address'].str.extract(r'(\d{5})(?!.*\d{5})')
     return df
 
 def main():
