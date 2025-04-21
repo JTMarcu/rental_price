@@ -8,103 +8,40 @@ import time
 import os
 import logging
 import subprocess
+import re
+from datetime import datetime
 
-# Set up logging
+# Configuration
+HEADLESS = True
+LISTINGS_PER_PAGE = 40
+WAIT_TIME = 10
+BASE_URL = "https://www.apartments.com/apartments-condos/san-diego-ca/min-2-bedrooms-2-bathrooms-2000-to-3500/"
+
+# Setup Logging
 logging.basicConfig(
-    filename='scraper_log.txt', 
-    filemode='w', 
-    format='%(asctime)s - %(levelname)s - %(message)s', 
-    level=logging.INFO
+    filename='scraper_log.txt',
+    filemode='w',
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.WARNING
 )
 
-# Set up Edge WebDriver in headless mode with fully suppressed output
-edge_options = Options()
-edge_options.add_argument("--headless")
-edge_options.add_argument("--disable-gpu")
-edge_options.add_argument("--no-sandbox")
-edge_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
+def init_driver():
+    options = Options()
+    if HEADLESS:
+        options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("user-agent=Mozilla/5.0")
+    service = Service(
+        executable_path=EdgeChromiumDriverManager().install(),
+        log_output=os.devnull
+    )
+    return webdriver.Edge(service=service, options=options)
 
-service = Service(
-    executable_path=EdgeChromiumDriverManager().install(),
-    log_output=subprocess.DEVNULL
-)
-
-driver = webdriver.Edge(service=service, options=edge_options)
-
-# Begin scraping all pages
-all_units = []
-page = 1
-listings_per_page = 40
-
-while True:
-    url = f'https://www.apartments.com/apartments-condos/san-diego-ca/min-2-bedrooms-2-bathrooms-2000-to-3500/{page}/'
-    log_msg = f"Loading page {page}: {url}"
-    print(f"\n{log_msg}")
-    logging.info(log_msg)
-
-    driver.get(url)
-    time.sleep(10)
-
-    html = driver.page_source
-    soup = BeautifulSoup(html, 'html.parser')
-    listings = soup.find_all('article')
-
-    found_msg = f"Found {len(listings)} listings on page {page}"
-    print(found_msg)
-    logging.info(found_msg)
-
-    if len(listings) == 0:
-        logging.info("No listings found — breaking loop.")
-        break
-
-    for listing in listings:
-        title = listing.find('span', class_='js-placardTitle')
-        address = listing.find('div', class_='property-address')
-        phone = listing.find('button', class_='phone-link')
-        property_url = listing.get('data-url')
-
-        if title and address and property_url:
-            try:
-                driver.get(property_url)
-                time.sleep(5)
-                detail_html = driver.page_source
-                detail_soup = BeautifulSoup(detail_html, 'html.parser')
-                unit_containers = detail_soup.find_all('li', class_='unitContainer js-unitContainerV3')
-
-                if not unit_containers:
-                    logging.warning(f"No unit data found for {property_url}")
-
-                for unit in unit_containers:
-                    unit_number = unit.find('div', class_='unitColumn column')
-                    price = unit.find('div', class_='pricingColumn column')
-                    sqft = unit.find('div', class_='sqftColumn column')
-
-                    all_units.append({
-                        'Property': title.text.strip(),
-                        'Address': address.text.strip(),
-                        'Unit': unit_number.text.strip() if unit_number else "N/A",
-                        'Price': price.text.strip() if price else "N/A",
-                        'SqFt': sqft.text.strip() if sqft else "N/A",
-                        'Phone': phone.get('phone-data') if phone and phone.has_attr('phone-data') else "N/A",
-                        'ListingURL': property_url
-                    })
-            except Exception as e:
-                logging.warning(f"Error loading unit data for {property_url}: {e}")
-
-        else:
-            logging.warning("Skipped listing with missing title, address, or URL.")
-
-    if len(listings) < listings_per_page:
-        logging.info("Reached last page.")
-        break
-
-    page += 1
-    
-# Clean Price: extract lowest value from range
 def extract_low_price(price):
     if pd.isna(price):
         return None
-    price = re.sub(r'[^\d\-]', '', str(price))  # Keep only digits and dashes
+    price = re.sub(r'[^\d\-]', '', str(price))
     if '-' in price:
         low = price.split('-')[0].strip()
         return float(low)
@@ -112,26 +49,101 @@ def extract_low_price(price):
         return float(price)
     return None
 
-df['Price'] = df['Price'].apply(extract_low_price)
+def scrape_listings(driver):
+    all_units = []
+    page = 1
 
-# Clean SqFt: extract numeric square footage
-df['SqFt'] = df['SqFt'].astype(str).str.extract(r'(\d+)', expand=False)
-df['SqFt'] = pd.to_numeric(df['SqFt'], errors='coerce')
+    while True:
+        url = f"{BASE_URL}{page}/"
+        logging.info(f"Loading page {page}: {url}")
+        driver.get(url)
+        time.sleep(WAIT_TIME)
 
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        listings = soup.find_all('article')
 
-# Save to CSV
-df = pd.DataFrame(all_units)
+        if not listings:
+            break
 
-from datetime import datetime
+        for listing in listings:
+            title = listing.find('span', class_='js-placardTitle')
+            address = listing.find('div', class_='property-address')
+            phone = listing.find('button', class_='phone-link')
+            property_url = listing.get('data-url')
 
-# Format filename with current date
-today_str = datetime.today().strftime('%Y-%m-%d')
-filename = f'san_diego_rentals_{today_str}.csv'
+            if title and address and property_url:
+                try:
+                    driver.get(property_url)
+                    time.sleep(WAIT_TIME / 2)
+                    detail_soup = BeautifulSoup(driver.page_source, 'html.parser')
+                    unit_containers = detail_soup.find_all('li', class_='unitContainer js-unitContainerV3')
 
-df.to_csv(filename, index=False)
-print(f"✅ Scraping complete. Data saved to {filename}")
-logging.info(f"Scraping complete. Data saved to {filename}")
+                    rental_type = "Unknown"
+                    og_title_tag = detail_soup.find("meta", property="og:title")
+                    if og_title_tag and og_title_tag.get("content"):
+                        content = og_title_tag["content"].lower()
+                        if "house rental" in content:
+                            rental_type = "House"
+                        elif "townhome" in content:
+                            rental_type = "Townhome"
+                        elif "condo" in content:
+                            rental_type = "Condo"
+                        elif "apartment" in content:
+                            rental_type = "Apartment"
 
-# Close the browser
-driver.quit()
-logging.info("Browser session closed.")
+                    for unit in unit_containers:
+                        unit_number = unit.find('div', class_='unitColumn column')
+                        price = unit.find('div', class_='pricingColumn column')
+                        sqft = unit.find('div', class_='sqftColumn column')
+                        beds = unit.get('data-beds')
+                        baths = unit.get('data-baths')
+
+                        all_units.append({
+                            'Property': title.text.strip(),
+                            'Address': address.text.strip(),
+                            'Unit': unit_number.text.strip() if unit_number else "N/A",
+                            'Price': price.text.strip() if price else "N/A",
+                            'SqFt': sqft.text.strip() if sqft else "N/A",
+                            'Beds': beds if beds else "N/A",
+                            'Baths': baths if baths else "N/A",
+                            'RentalType': rental_type,
+                            'Phone': phone.get('phone-data') if phone and phone.has_attr('phone-data') else "N/A",
+                            'ListingURL': property_url
+                        })
+                except Exception as e:
+                    logging.warning(f"Error processing {property_url}: {e}")
+
+        if len(listings) < LISTINGS_PER_PAGE:
+            break
+        page += 1
+
+    return pd.DataFrame(all_units)
+
+def clean_data(df):
+    df['Price'] = df['Price'].apply(extract_low_price)
+    df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
+    df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
+    df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
+    return df
+
+def main():
+    driver = init_driver()
+    df = scrape_listings(driver)
+    driver.quit()
+
+    df = clean_data(df)
+
+    today_str = datetime.today().strftime('%Y-%m-%d')
+    filename = f'san_diego_rentals_{today_str}.csv'
+
+    if df.empty:
+        print("⚠️ No data collected. File not saved.")
+        logging.warning("No data collected. File not saved.")
+        return
+
+    df.to_csv(filename, index=False)
+    print(f"✅ Scraping complete. Data saved to {filename}")
+    logging.info(f"Scraping complete. Data saved to {filename}")
+
+if __name__ == "__main__":
+    main()
