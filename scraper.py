@@ -14,7 +14,7 @@ from datetime import datetime
 # Configuration
 HEADLESS = True
 LISTINGS_PER_PAGE = 40
-WAIT_TIME = 10
+WAIT_TIME = 4
 BASE_URL = "https://www.apartments.com/apartments-condos/san-diego-county-ca/under-4000/"
 
 # Setup Logging
@@ -124,8 +124,21 @@ def clean_data(df):
     df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
     df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
     df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
+
+    # Extract ZipCode
     df['ZipCode'] = df['Address'].str.extract(r'(\d{5})(?!.*\d{5})')
-    return df
+
+    # Extract City and State from Address
+    city_state = df['Address'].str.extract(r',\s*([^,]+),\s*([A-Z]{2})\s*\d{5}')
+    df['City'] = city_state[0].str.strip()
+    df['State'] = city_state[1].str.strip()
+
+    # Reorder columns
+    columns_order = [
+        'Property', 'Address', 'Unit', 'City', 'State', 'ZipCode',
+        'Price', 'SqFt', 'Beds', 'Baths', 'RentalType', 'Phone', 'ListingURL'
+    ]
+    return df[columns_order]
 
 def main():
     driver = init_driver()
