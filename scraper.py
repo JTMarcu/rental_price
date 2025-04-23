@@ -156,6 +156,8 @@ def clean_data(df):
 
 
 def main():
+    start_time = time.time()  # Start timer
+
     driver = init_driver()
     df = scrape_listings(driver)
     driver.quit()
@@ -166,13 +168,16 @@ def main():
     filename = f'san_diego_county_rentals_{today_str}.csv'
 
     if df.empty:
-        print("⚠️ No data collected. File not saved.")
+        print("No data collected. File not saved.")
         logging.warning("No data collected. File not saved.")
-        return
+    else:
+        df.to_csv(filename, index=False)
+        print(f"Scraping complete. Data saved to {filename}")
+        logging.info(f"Scraping complete. Data saved to {filename}")
 
-    df.to_csv(filename, index=False)
-    print(f"✅ Scraping complete. Data saved to {filename}")
-    logging.info(f"Scraping complete. Data saved to {filename}")
+    end_time = time.time()  # End timer
+    duration = end_time - start_time
+    print(f" Script runtime: {duration:.2f} seconds")
 
 if __name__ == "__main__":
     main()
