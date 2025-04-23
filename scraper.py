@@ -133,12 +133,27 @@ def clean_data(df):
     df['City'] = city_state[0].str.strip()
     df['State'] = city_state[1].str.strip()
 
+    # Add PricePerSqFt column
+    df['PricePerSqFt'] = df.apply(
+        lambda row: row['Price'] / row['SqFt']
+        if pd.notnull(row['Price']) and pd.notnull(row['SqFt']) and row['SqFt'] > 0 else None,
+        axis=1
+    )
+
+    # Add Beds_Baths column
+    df['Beds_Baths'] = df.apply(
+        lambda row: f"{int(row['Beds']) if pd.notnull(row['Beds']) else 'N/A'} Bed / {int(row['Baths']) if pd.notnull(row['Baths']) else 'N/A'} Bath",
+        axis=1
+    )
+
     # Reorder columns
     columns_order = [
         'Property', 'Address', 'Unit', 'City', 'State', 'ZipCode',
-        'Price', 'SqFt', 'Beds', 'Baths', 'RentalType', 'Phone', 'ListingURL'
+        'Price', 'SqFt', 'PricePerSqFt', 'Beds', 'Baths', 'Beds_Baths',
+        'RentalType', 'Phone', 'ListingURL'
     ]
     return df[columns_order]
+
 
 def main():
     driver = init_driver()
