@@ -15,7 +15,7 @@ from datetime import datetime
 HEADLESS = True
 LISTINGS_PER_PAGE = 40
 WAIT_TIME = 10
-BASE_URL = "https://www.apartments.com/apartments-condos/san-diego-ca/min-2-bedrooms-2-bathrooms-2000-to-3500/"
+BASE_URL = "https://www.apartments.com/apartments-condos/san-diego-county-ca/under-4000/"
 
 # Setup Logging
 logging.basicConfig(
@@ -135,7 +135,7 @@ def main():
     df = clean_data(df)
 
     today_str = datetime.today().strftime('%Y-%m-%d')
-    filename = f'san_diego_rentals_{today_str}.csv'
+    filename = f'san_diego_county_rentals_{today_str}.csv'
 
     if df.empty:
         print("⚠️ No data collected. File not saved.")
