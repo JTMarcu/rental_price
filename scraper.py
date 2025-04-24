@@ -14,7 +14,7 @@ from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
 HEADLESS = True
 WAIT_TIME = 4
-BASE_URL = "https://www.apartments.com/san-diego-ca-92108/"
+BASE_URL = "https://www.apartments.com/apartments-condos/san-diego-county-ca/under-4000/"
 LOG_FILE = "scraper_log.txt"
 
 logging.basicConfig(
