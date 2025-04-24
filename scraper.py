@@ -135,7 +135,7 @@ def clean_data(df):
 
     # Add PricePerSqFt column
     df['PricePerSqFt'] = df.apply(
-        lambda row: row['Price'] / row['SqFt']
+        lambda row: round(row['Price'] / row['SqFt'], 2)
         if pd.notnull(row['Price']) and pd.notnull(row['SqFt']) and row['SqFt'] > 0 else None,
         axis=1
     )
@@ -177,7 +177,8 @@ def main():
 
     end_time = time.time()  # End timer
     duration = end_time - start_time
-    print(f" Script runtime: {duration:.2f} seconds")
+    minutes, seconds = divmod(duration, 60)
+    print(f"Script runtime: {int(minutes)} minutes and {seconds:.2f} seconds")
 
 if __name__ == "__main__":
     main()
