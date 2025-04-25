@@ -116,7 +116,6 @@ def scrape_listings(driver):
                             'Phone': phone.get('phone-data') if phone and phone.has_attr('phone-data') else "N/A",
                             **amenities,
                             'StorageFee': None,
-                            'ParkingType': None,
                             'ListingURL': property_url
                         })
 
@@ -161,7 +160,7 @@ def clean_data(df):
         'RentalType',
         'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
         'HasGym', 'HasEVCharging', 'StorageFee',
-        'AllowsDogs', 'AllowsCats', 'ParkingType',
+        'AllowsDogs', 'AllowsCats',
         'ListingURL'
     ]
     return df[final_order]
