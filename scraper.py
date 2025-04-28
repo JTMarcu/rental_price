@@ -115,7 +115,6 @@ def scrape_listings(driver):
                             'RentalType': rental_type,
                             'Phone': phone.get('phone-data') if phone and phone.has_attr('phone-data') else "N/A",
                             **amenities,
-                            'StorageFee': None,
                             'ListingURL': property_url
                         })
 
@@ -159,7 +158,7 @@ def clean_data(df):
         'Unit', 'Beds', 'Baths', 'Beds_Baths', 'SqFt', 'Price', 'PricePerSqFt',
         'RentalType',
         'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
-        'HasGym', 'HasEVCharging', 'StorageFee',
+        'HasGym', 'HasEVCharging',
         'AllowsDogs', 'AllowsCats',
         'ListingURL'
     ]
