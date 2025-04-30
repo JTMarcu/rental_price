@@ -44,9 +44,14 @@ def extract_low_price(price):
 
 def extract_amenities(soup):
     labels = soup.select('.amenityLabel') + soup.select('.combinedAmenitiesList li span')
+    fee_section = soup.find(id='fees-policies-pets-tab')
+    
+    # Combine visible amenities and pet policy tab content
     text = ' '.join(el.get_text(separator=' ').lower().strip() for el in labels)
+    if fee_section:
+        text += ' ' + fee_section.get_text(separator=' ').lower()
 
-    logging.debug("Combined amenities text: %s", text)
+    logging.debug("Combined amenities and fee policy text: %s", text)
 
     return {
         'HasWasherDryer': 'washer/dryer' in text or 'in unit washer' in text,
@@ -55,8 +60,7 @@ def extract_amenities(soup):
         'HasSpa': 'spa' in text or 'hot tub' in text,
         'HasGym': 'fitness center' in text or 'gym' in text,
         'HasEVCharging': 'ev charging' in text,
-        'AllowsDogs': 'dogs allowed' in text or 'dog friendly' in text,
-        'AllowsCats': 'cats allowed' in text or 'cat friendly' in text
+        'IsPetFriendly': any(pet in text for pet in ['dog friendly', 'dogs allowed', 'cat friendly', 'cats allowed'])
     }
 
 def scrape_listings(driver):
@@ -159,7 +163,7 @@ def clean_data(df):
         'RentalType',
         'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
         'HasGym', 'HasEVCharging',
-        'AllowsDogs', 'AllowsCats',
+        'IsPetFriendly',
         'ListingURL'
     ]
     return df[final_order]
