@@ -45,23 +45,39 @@ def extract_low_price(price):
 def extract_amenities(soup):
     labels = soup.select('.amenityLabel') + soup.select('.combinedAmenitiesList li span')
     fee_section = soup.find(id='fees-policies-pets-tab')
-    
-    # Combine visible amenities and pet policy tab content
-    text = ' '.join(el.get_text(separator=' ').lower().strip() for el in labels)
+    unique_features = soup.select('.uniqueAmenity')
+
+    # Combine visible amenity text and pet-related tab content
+    text = ' '.join(el.get_text(separator=' ').lower().strip() for el in labels + unique_features)
     if fee_section:
         text += ' ' + fee_section.get_text(separator=' ').lower()
 
     logging.debug("Combined amenities and fee policy text: %s", text)
 
+    # Determine pet-friendliness
+    pet_positive_terms = [
+        'dogs allowed', 'cats allowed', 'dog friendly', 'cat friendly',
+        'pet-friendly', 'pets allowed', 'pet friendly'
+    ]
+    pet_negative_terms = [
+        'no pets', 'pets not allowed', 'not pet friendly', 'no animals'
+    ]
+
+    is_pet_friendly = (
+        any(term in text for term in pet_positive_terms)
+        and not any(term in text for term in pet_negative_terms)
+    )
+
     return {
-        'HasWasherDryer': 'washer/dryer' in text or 'in unit washer' in text,
-        'HasAirConditioning': 'air conditioning' in text,
+        'HasWasherDryer': 'washer/dryer' in text or 'in unit washer' in text or 'front loading washer' in text,
+        'HasAirConditioning': 'air conditioning' in text or 'central ac' in text or 'central aircon' in text,
         'HasPool': 'pool' in text,
         'HasSpa': 'spa' in text or 'hot tub' in text,
         'HasGym': 'fitness center' in text or 'gym' in text,
         'HasEVCharging': 'ev charging' in text,
-        'IsPetFriendly': any(pet in text for pet in ['dog friendly', 'dogs allowed', 'cat friendly', 'cats allowed'])
+        'IsPetFriendly': is_pet_friendly
     }
+
 
 def scrape_listings(driver):
     all_units = []
