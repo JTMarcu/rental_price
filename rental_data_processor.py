@@ -1,7 +1,6 @@
 import pandas as pd
 import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog
+from tkinter import ttk, filedialog
 import os
 import hashlib
 import re
@@ -14,140 +13,130 @@ MONTH_MAP = {
     'May': 5, 'June': 6, 'July': 7, 'August': 8,
     'September': 9, 'October': 10, 'November': 11, 'December': 12
 }
-
 MONTHS = list(MONTH_MAP.keys())
 YEARS = [str(y) for y in range(2020, 2031)]
 
 def smart_address_title(s):
-    """Clean and standardize address text with proper title casing."""
+    """Standardize address/unit formatting."""
     if pd.isnull(s):
         return s
     s = str(s).strip().title()
-    # Lowercase ordinal suffixes like '9Th' → '9th', '2Nd' → '2nd'
     s = re.sub(r'(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), s)
     return s
 
 def deterministic_12_digit(s):
-    """Generate a deterministic 12-digit ID from a string using SHA256."""
+    """Generate deterministic 12-digit property_id."""
     h = int(hashlib.sha256(s.encode()).hexdigest(), 16)
     return str(h)[-12:]
 
-def get_csv_file():
-    """Open file dialog to select CSV file."""
-    root = tk.Tk()
-    root.withdraw()
-    csv_path = filedialog.askopenfilename(
-        title="Select CSV file", 
-        filetypes=[("CSV files", "*.csv")]
-    )
-    if csv_path:
-        print(f"Selected: {os.path.basename(csv_path)}")
-    return csv_path
-
-def clean_dataframe(df):
-    """Clean and process the rental data DataFrame."""
-    # Clean address fields
+def clean_and_finalize_dataframe(df):
+    # Standardize text fields
     for col in ['Address', 'Unit']:
-        df[col] = df[col].apply(smart_address_title)
-    
-    # Clean SqFt field (keep as string, just strip whitespace)
-    df['SqFt'] = df['SqFt'].astype(str).str.strip()
-    
-    # Create unique property ID
-    property_key = df['Address'] + '|' + df['Unit'] + '|' + df['SqFt']
+        if col in df.columns:
+            df[col] = df[col].apply(smart_address_title)
+    # Clean numeric fields
+    if 'Price' in df.columns:
+        df['Price'] = pd.to_numeric(df['Price'], errors='coerce')
+    if 'SqFt' in df.columns:
+        df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
+    if 'Beds' in df.columns:
+        df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
+    if 'Baths' in df.columns:
+        df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
+    # Extract ZipCode
+    df['ZipCode'] = df['Address'].str.extract(r'(\d{5})(?!.*\d{5})')
+    # Extract City and State
+    city_state = df['Address'].str.extract(r',\s*([^,]+),\s*([A-Z]{2})\s*\d{5}')
+    df['City'] = city_state[0].str.strip()
+    df['State'] = city_state[1].str.strip()
+    # Calculate price per sqft
+    df['PricePerSqFt'] = df.apply(
+        lambda row: round(row['Price'] / row['SqFt'], 2) if pd.notnull(row['Price']) and pd.notnull(row['SqFt']) and row['SqFt'] > 0 else None,
+        axis=1
+    )
+    # Beds_Baths combined field
+    df['Beds_Baths'] = df.apply(
+        lambda row: f"{int(row['Beds']) if pd.notnull(row['Beds']) else 'N/A'} Bed / {int(row['Baths']) if pd.notnull(row['Baths']) else 'N/A'} Bath",
+        axis=1
+    )
+    # Deterministic property_id
+    property_key = df['Address'].fillna('') + '|' + df['Unit'].fillna('') + '|' + df['SqFt'].fillna('').astype(str)
     df['property_id'] = property_key.apply(deterministic_12_digit)
-    
     # Move property_id to first column
     cols = ['property_id'] + [col for col in df.columns if col != 'property_id']
     df = df[cols]
-    
-    # Remove duplicates based on property_id
+    # Remove duplicates on property_id
     df = df.drop_duplicates(subset='property_id', keep='first').reset_index(drop=True)
-    
     return df
 
 def ask_month_year():
-    """Open dialog to select month and year for the data."""
-    current_month = calendar.month_name[datetime.now().month]
-    current_year = str(datetime.now().year)
-    
+    root = tk.Tk()
+    root.withdraw()
     dialog = tk.Toplevel()
     dialog.title("Select Month and Year")
     dialog.grab_set()
-
     tk.Label(dialog, text="Month:").grid(row=0, column=0, padx=5, pady=5)
     tk.Label(dialog, text="Year:").grid(row=1, column=0, padx=5, pady=5)
-
+    current_month = calendar.month_name[datetime.now().month]
+    current_year = str(datetime.now().year)
     month_var = tk.StringVar(value=current_month)
     year_var = tk.StringVar(value=current_year)
-
     month_cb = ttk.Combobox(dialog, textvariable=month_var, values=MONTHS, state="readonly")
     year_cb = ttk.Combobox(dialog, textvariable=year_var, values=YEARS, state="readonly")
     month_cb.grid(row=0, column=1, padx=5, pady=5)
     year_cb.grid(row=1, column=1, padx=5, pady=5)
-
     def on_ok():
         dialog.result = (month_cb.get(), year_cb.get())
         dialog.destroy()
-
     ok_btn = tk.Button(dialog, text="OK", command=on_ok)
     ok_btn.grid(row=2, column=0, columnspan=2, pady=10)
-
     dialog.wait_window()
+    root.destroy()
     return getattr(dialog, 'result', (current_month, current_year))
 
 def add_month_year_columns(df, month_name, year_str):
-    """Add month and year columns to the DataFrame."""
     df = df.copy()
     df['month'] = MONTH_MAP[month_name]
     df['year'] = int(year_str)
     return df
 
-def save_dataframe(df):
-    """Save DataFrame to CSV file using file dialog."""
+def save_dataframe(df, month_name, year_str):
     save_path = filedialog.asksaveasfilename(
-        title="Save CSV file",
+        title="Save processed CSV for DB import",
         defaultextension=".csv",
-        initialfile="processed_rental_data.csv",
+        initialfile=f"SD_county_{month_name}_{year_str}.csv",
         filetypes=[("CSV files", "*.csv")]
     )
     if save_path:
         df.to_csv(save_path, index=False)
-        print(f"Saved to {os.path.basename(save_path)}")
-        return True
+        print(f"\nSaved ready-to-import CSV to: {os.path.basename(save_path)}\n")
     else:
         print("Save cancelled.")
-        return False
 
 def main():
-    """Main function to process rental data CSV."""
-    # Get CSV file from user
-    csv_path = get_csv_file()
+    root = tk.Tk()
+    root.withdraw()
+    csv_path = filedialog.askopenfilename(
+        title="Select original rental CSV file",
+        filetypes=[("CSV files", "*.csv")]
+    )
     if not csv_path:
         print("No file selected. Exiting.")
         return
-    
-    # Load and clean data
-    try:
-        df = pd.read_csv(csv_path)
-        print(f"Loaded {len(df)} rows from {os.path.basename(csv_path)}")
-        
-        # Clean the dataframe
-        df = clean_dataframe(df)
-        print(f"After cleaning and deduplication: {len(df)} rows")
-        
-        # Get month and year from user
-        selected_month, selected_year = ask_month_year()
-        
-        # Add month/year columns
-        df = add_month_year_columns(df, selected_month, selected_year)
-        print(f"Added month/year: {selected_month} {selected_year}")
-        
-        # Save the processed data
-        save_dataframe(df)
-        
-    except Exception as e:
-        print(f"Error processing file: {e}")
+    df = pd.read_csv(csv_path)
+    df = clean_and_finalize_dataframe(df)
+    selected_month, selected_year = ask_month_year()
+    df = add_month_year_columns(df, selected_month, selected_year)
+    # Final column order to match new standard
+    final_cols = [
+        'property_id', 'Property', 'Address', 'City', 'State', 'ZipCode', 'Phone', 'Unit',
+        'Beds', 'Baths', 'Beds_Baths', 'SqFt', 'Price', 'PricePerSqFt',
+        'RentalType', 'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
+        'HasGym', 'HasEVCharging', 'IsPetFriendly', 'ListingURL', 'month', 'year'
+    ]
+    # Only keep columns that exist in the DataFrame (handles older CSVs)
+    df = df[[col for col in final_cols if col in df.columns]]
+    save_dataframe(df, selected_month, selected_year)
 
 if __name__ == "__main__":
     main()
