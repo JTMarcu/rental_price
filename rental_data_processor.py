@@ -156,19 +156,47 @@ def main():
     df = clean_and_finalize_dataframe(df)
     selected_month, selected_year = ask_month_year()
     df = add_month_year_columns(df, selected_month, selected_year)
-    # Final column order to match new standard
+    
+    # Rename columns to match database schema (lowercase)
+    column_mapping = {
+        'Property': 'property',
+        'Address': 'address', 
+        'City': 'city',
+        'State': 'state',
+        'ZipCode': 'zipcode',
+        'Phone': 'phone',
+        'Unit': 'unit',
+        'Beds': 'beds',
+        'Baths': 'baths',
+        'Beds_Baths': 'beds_baths',
+        'SqFt': 'sqft',
+        'Price': 'price',
+        'PricePerSqFt': 'pricepersqft',
+        'RentalType': 'rentaltype',
+        'HasWasherDryer': 'haswasherdryer',
+        'HasAirConditioning': 'hasairconditioning',
+        'HasPool': 'haspool',
+        'HasSpa': 'hasspa',
+        'HasGym': 'hasgym',
+        'HasEVCharging': 'hasevcharging',
+        'IsPetFriendly': 'ispetfriendly',
+        'ListingURL': 'listingurl'
+    }
+    df = df.rename(columns=column_mapping)
+    
+    # Final column order to match database schema
     final_cols = [
-        'property_id', 'Property', 'Address', 'City', 'State', 'ZipCode', 'Phone', 'Unit',
-        'Beds', 'Baths', 'Beds_Baths', 'SqFt', 'Price', 'PricePerSqFt',
-        'RentalType', 'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
-        'HasGym', 'HasEVCharging', 'IsPetFriendly', 'ListingURL', 'month', 'year'
+        'property_id', 'property', 'address', 'city', 'state', 'zipcode', 'phone', 'unit',
+        'beds', 'baths', 'beds_baths', 'sqft', 'price', 'pricepersqft',
+        'rentaltype', 'haswasherdryer', 'hasairconditioning', 'haspool', 'hasspa',
+        'hasgym', 'hasevcharging', 'ispetfriendly', 'listingurl', 'month', 'year'
     ]
     # Only keep columns that exist in the DataFrame (handles older CSVs)
     df = df[[col for col in final_cols if col in df.columns]]
     # Debug: print addresses missing city/state
-    if df['City'].isnull().any() or df['State'].isnull().any():
+    if df['city'].isnull().any() or df['state'].isnull().any():
         print("Some addresses are missing City or State. First few examples:")
-        print(df[df['City'].isnull() | df['State'].isnull()][['Address', 'City', 'State']].head(10))
+        print(df[df['city'].isnull() | df['state'].isnull()][['address', 'city', 'state']].head(10))
     save_dataframe(df, selected_month, selected_year)
 
 if __name__ == "__main__":

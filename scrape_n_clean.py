@@ -173,26 +173,31 @@ def extract_city_state(address):
     return pd.Series([np.nan, np.nan])
 
 def clean_and_finalize_dataframe(df):
+    import numpy as np
+
     # Standardize text fields
     for col in ['Address', 'Unit']:
         if col in df.columns:
             df[col] = df[col].apply(smart_address_title)
+
     # Clean numeric fields
     if 'Price' in df.columns:
-        df['Price'] = df['Price'].apply(extract_low_price)
+        df['Price'] = pd.to_numeric(df['Price'], errors='coerce')
     if 'SqFt' in df.columns:
         df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
     if 'Beds' in df.columns:
         df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
     if 'Baths' in df.columns:
         df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
-    # Add zip/city/state for downstream use
+
+    # Extract ZipCode
     df['ZipCode'] = df['Address'].str.extract(r'(\d{5})(?!.*\d{5})')
 
-    # Robust City/State logic: only fill if missing or empty
+    # Extract City and State ONLY if needed
     if not ('City' in df.columns and 'State' in df.columns):
         df[['City', 'State']] = df['Address'].apply(extract_city_state)
     else:
+        # If both exist but City is all NaN or empty, extract
         if df['City'].isnull().all() or df['City'].eq('').all():
             df[['City', 'State']] = df['Address'].apply(extract_city_state)
 
@@ -202,31 +207,24 @@ def clean_and_finalize_dataframe(df):
         if pd.notnull(row['Price']) and pd.notnull(row['SqFt']) and row['SqFt'] > 0 else None,
         axis=1
     )
+
+    # Beds_Baths combined field
     df['Beds_Baths'] = df.apply(
         lambda row: f"{int(row['Beds']) if pd.notnull(row['Beds']) else 'N/A'} Bed / {int(row['Baths']) if pd.notnull(row['Baths']) else 'N/A'} Bath",
         axis=1
     )
+
     # Deterministic property_id
     property_key = df['Address'].fillna('') + '|' + df['Unit'].fillna('') + '|' + df['SqFt'].fillna('').astype(str)
     df['property_id'] = property_key.apply(deterministic_12_digit)
-    # Fill all expected columns with N/A, 0, or False if missing
-    final_cols = [
-        'property_id', 'Property', 'Address', 'City', 'State', 'ZipCode', 'Phone', 'Unit',
-        'Beds', 'Baths', 'Beds_Baths', 'SqFt', 'Price', 'PricePerSqFt',
-        'RentalType', 'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
-        'HasGym', 'HasEVCharging', 'IsPetFriendly', 'ListingURL'
-    ]
-    for col in final_cols:
-        if col not in df.columns:
-            if col in ['Beds', 'Baths', 'SqFt', 'Price', 'PricePerSqFt']:
-                df[col] = 0
-            elif col.startswith('Has') or col.startswith('Is'):
-                df[col] = False
-            else:
-                df[col] = "N/A"
+
+    # Keep amenity columns as boolean for database compatibility
+    # No need to convert to 'Yes'/'No' strings since database expects BOOLEAN
+
     # Move property_id to first column
-    cols = ['property_id'] + [col for col in final_cols if col != 'property_id']
+    cols = ['property_id'] + [col for col in df.columns if col != 'property_id']
     df = df[cols]
+
     # Remove duplicates on property_id
     df = df.drop_duplicates(subset='property_id', keep='first').reset_index(drop=True)
     return df
@@ -277,18 +275,46 @@ def main():
     # Month/year confirmation (GUI)
     selected_month, selected_year = ask_month_year()
     df = add_month_year_columns(df, selected_month, selected_year)
-    # Final order for DB loader
+    
+    # Rename columns to match database schema (lowercase)
+    column_mapping = {
+        'Property': 'property',
+        'Address': 'address', 
+        'City': 'city',
+        'State': 'state',
+        'ZipCode': 'zipcode',
+        'Phone': 'phone',
+        'Unit': 'unit',
+        'Beds': 'beds',
+        'Baths': 'baths',
+        'Beds_Baths': 'beds_baths',
+        'SqFt': 'sqft',
+        'Price': 'price',
+        'PricePerSqFt': 'pricepersqft',
+        'RentalType': 'rentaltype',
+        'HasWasherDryer': 'haswasherdryer',
+        'HasAirConditioning': 'hasairconditioning',
+        'HasPool': 'haspool',
+        'HasSpa': 'hasspa',
+        'HasGym': 'hasgym',
+        'HasEVCharging': 'hasevcharging',
+        'IsPetFriendly': 'ispetfriendly',
+        'ListingURL': 'listingurl'
+    }
+    df = df.rename(columns=column_mapping)
+    
+    # Final order for DB loader to match database schema
     final_cols = [
-        'property_id', 'Property', 'Address', 'City', 'State', 'ZipCode', 'Phone', 'Unit',
-        'Beds', 'Baths', 'Beds_Baths', 'SqFt', 'Price', 'PricePerSqFt',
-        'RentalType', 'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
-        'HasGym', 'HasEVCharging', 'IsPetFriendly', 'ListingURL', 'month', 'year'
+        'property_id', 'property', 'address', 'city', 'state', 'zipcode', 'phone', 'unit',
+        'beds', 'baths', 'beds_baths', 'sqft', 'price', 'pricepersqft',
+        'rentaltype', 'haswasherdryer', 'hasairconditioning', 'haspool', 'hasspa',
+        'hasgym', 'hasevcharging', 'ispetfriendly', 'listingurl', 'month', 'year'
     ]
     for col in final_cols:
         if col not in df.columns:
-            if col in ['Beds', 'Baths', 'SqFt', 'Price', 'PricePerSqFt', 'month', 'year']:
+            if col in ['beds', 'baths', 'sqft', 'price', 'pricepersqft', 'month', 'year']:
                 df[col] = 0
-            elif col.startswith('Has') or col.startswith('Is'):
+            elif col.startswith('has') or col.startswith('is'):
                 df[col] = False
             else:
                 df[col] = "N/A"
