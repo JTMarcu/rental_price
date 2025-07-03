@@ -5,6 +5,7 @@ import hashlib
 import calendar
 import pandas as pd
 import logging
+import numpy as np
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.edge.service import Service
@@ -14,13 +15,13 @@ from bs4 import BeautifulSoup
 import tkinter as tk
 from tkinter import ttk, filedialog
 
-# ========== CONFIGS ==========
+# ---------- CONFIGS ----------
 HEADLESS = True
 WAIT_TIME = 4
 LISTINGS_PER_PAGE = 40
 BASE_URL = "https://www.apartments.com/apartments-condos/san-diego-county-ca/under-4000/"
 LOG_FILE = "scraper_log.txt"
-TEST_MODE = False
+TEST_MODE = True
 MAX_UNITS = 10
 
 logging.basicConfig(
@@ -38,7 +39,7 @@ MONTH_MAP = {
 MONTHS = list(MONTH_MAP.keys())
 YEARS = [str(y) for y in range(2020, 2031)]
 
-# ========== SCRAPER LOGIC ==========
+# ---------- SCRAPER LOGIC ----------
 def init_driver():
     options = Options()
     if HEADLESS:
@@ -121,8 +122,8 @@ def scrape_listings(driver):
                         beds = unit.get('data-beds')
                         baths = unit.get('data-baths')
                         all_units.append({
-                            'Property': title.text.strip(),
-                            'Address': address.text.strip(),
+                            'Property': title.text.strip() if title else "N/A",
+                            'Address': address.text.strip() if address else "N/A",
                             'Unit': unit_number.text.strip() if unit_number else "N/A",
                             'Price': price.text.strip() if price else "N/A",
                             'SqFt': sqft.text.strip() if sqft else "N/A",
@@ -143,7 +144,7 @@ def scrape_listings(driver):
         page += 1
     return pd.DataFrame(all_units)
 
-# ========== CLEANING/DEDUPLICATION/ID GENERATION ==========
+# ---------- CLEANING/DEDUPLICATION/ID GENERATION ----------
 def smart_address_title(s):
     if pd.isnull(s):
         return s
@@ -155,20 +156,46 @@ def deterministic_12_digit(s):
     h = int(hashlib.sha256(s.encode()).hexdigest(), 16)
     return str(h)[-12:]
 
+def extract_city_state(address):
+    if pd.isnull(address):
+        return pd.Series([np.nan, np.nan])
+    # Use re.IGNORECASE so it matches 'CA', 'Ca', 'ca', etc.
+    m = re.search(r',\s*([^,]+),\s*([A-Z]{2})\s*\d{5}', address, re.IGNORECASE)
+    if m:
+        # Return the city and uppercase version of the state
+        return pd.Series([m.group(1).strip(), m.group(2).strip().upper()])
+    m2 = re.search(r',\s*([A-Z]{2})\s*\d{5}', address, re.IGNORECASE)
+    if m2:
+        return pd.Series([np.nan, m2.group(1).strip().upper()])
+    m3 = re.search(r',\s*(\d{5})$', address)
+    if m3:
+        return pd.Series([np.nan, np.nan])
+    return pd.Series([np.nan, np.nan])
+
 def clean_and_finalize_dataframe(df):
     # Standardize text fields
     for col in ['Address', 'Unit']:
-        df[col] = df[col].apply(smart_address_title)
+        if col in df.columns:
+            df[col] = df[col].apply(smart_address_title)
     # Clean numeric fields
-    df['Price'] = df['Price'].apply(extract_low_price)
-    df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
-    df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
-    df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
+    if 'Price' in df.columns:
+        df['Price'] = df['Price'].apply(extract_low_price)
+    if 'SqFt' in df.columns:
+        df['SqFt'] = pd.to_numeric(df['SqFt'].astype(str).str.replace(',', '').str.extract(r'(\d+)', expand=False), errors='coerce')
+    if 'Beds' in df.columns:
+        df['Beds'] = pd.to_numeric(df['Beds'], errors='coerce')
+    if 'Baths' in df.columns:
+        df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
     # Add zip/city/state for downstream use
     df['ZipCode'] = df['Address'].str.extract(r'(\d{5})(?!.*\d{5})')
-    city_state = df['Address'].str.extract(r',\s*([^,]+),\s*([A-Z]{2})\s*\d{5}')
-    df['City'] = city_state[0].str.strip()
-    df['State'] = city_state[1].str.strip()
+
+    # Robust City/State logic: only fill if missing or empty
+    if not ('City' in df.columns and 'State' in df.columns):
+        df[['City', 'State']] = df['Address'].apply(extract_city_state)
+    else:
+        if df['City'].isnull().all() or df['City'].eq('').all():
+            df[['City', 'State']] = df['Address'].apply(extract_city_state)
+
     # Calculate price per sqft
     df['PricePerSqFt'] = df.apply(
         lambda row: round(row['Price'] / row['SqFt'], 2)
@@ -182,8 +209,23 @@ def clean_and_finalize_dataframe(df):
     # Deterministic property_id
     property_key = df['Address'].fillna('') + '|' + df['Unit'].fillna('') + '|' + df['SqFt'].fillna('').astype(str)
     df['property_id'] = property_key.apply(deterministic_12_digit)
+    # Fill all expected columns with N/A, 0, or False if missing
+    final_cols = [
+        'property_id', 'Property', 'Address', 'City', 'State', 'ZipCode', 'Phone', 'Unit',
+        'Beds', 'Baths', 'Beds_Baths', 'SqFt', 'Price', 'PricePerSqFt',
+        'RentalType', 'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
+        'HasGym', 'HasEVCharging', 'IsPetFriendly', 'ListingURL'
+    ]
+    for col in final_cols:
+        if col not in df.columns:
+            if col in ['Beds', 'Baths', 'SqFt', 'Price', 'PricePerSqFt']:
+                df[col] = 0
+            elif col.startswith('Has') or col.startswith('Is'):
+                df[col] = False
+            else:
+                df[col] = "N/A"
     # Move property_id to first column
-    cols = ['property_id'] + [col for col in df.columns if col != 'property_id']
+    cols = ['property_id'] + [col for col in final_cols if col != 'property_id']
     df = df[cols]
     # Remove duplicates on property_id
     df = df.drop_duplicates(subset='property_id', keep='first').reset_index(drop=True)
@@ -220,7 +262,7 @@ def add_month_year_columns(df, month_name, year_str):
     df['year'] = int(year_str)
     return df
 
-# ========== MAIN WORKFLOW ==========
+# ---------- MAIN WORKFLOW ----------
 def main():
     start_time = time.time()
     driver = init_driver()
@@ -242,6 +284,14 @@ def main():
         'RentalType', 'HasWasherDryer', 'HasAirConditioning', 'HasPool', 'HasSpa',
         'HasGym', 'HasEVCharging', 'IsPetFriendly', 'ListingURL', 'month', 'year'
     ]
+    for col in final_cols:
+        if col not in df.columns:
+            if col in ['Beds', 'Baths', 'SqFt', 'Price', 'PricePerSqFt', 'month', 'year']:
+                df[col] = 0
+            elif col.startswith('Has') or col.startswith('Is'):
+                df[col] = False
+            else:
+                df[col] = "N/A"
     df = df[final_cols]
     # Save processed CSV (file dialog)
     root = tk.Tk()

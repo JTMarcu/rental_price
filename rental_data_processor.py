@@ -5,6 +5,7 @@ import os
 import hashlib
 import re
 import calendar
+import numpy as np
 from datetime import datetime
 
 # Constants
@@ -29,6 +30,31 @@ def deterministic_12_digit(s):
     h = int(hashlib.sha256(s.encode()).hexdigest(), 16)
     return str(h)[-12:]
 
+def extract_city_state(address):
+    """
+    Extract City and State robustly from US-style addresses.
+    Handles:
+      - "123 Main St, San Diego, CA 92101"
+      - "123 Main St, CA 92101"
+      - "123 Main St, 92101"
+      - and missing values gracefully.
+    """
+    if pd.isnull(address):
+        return pd.Series([np.nan, np.nan])
+    # Try full match with city and state
+    m = re.search(r',\s*([^,]+),\s*([A-Z]{2})\s*\d{5}', address)
+    if m:
+        return pd.Series([m.group(1).strip(), m.group(2).strip()])
+    # Try just state and zip
+    m2 = re.search(r',\s*([A-Z]{2})\s*\d{5}', address)
+    if m2:
+        return pd.Series([np.nan, m2.group(1).strip()])
+    # Only zip at end, nothing else
+    m3 = re.search(r',\s*(\d{5})$', address)
+    if m3:
+        return pd.Series([np.nan, np.nan])
+    return pd.Series([np.nan, np.nan])
+
 def clean_and_finalize_dataframe(df):
     # Standardize text fields
     for col in ['Address', 'Unit']:
@@ -45,10 +71,13 @@ def clean_and_finalize_dataframe(df):
         df['Baths'] = pd.to_numeric(df['Baths'], errors='coerce')
     # Extract ZipCode
     df['ZipCode'] = df['Address'].str.extract(r'(\d{5})(?!.*\d{5})')
-    # Extract City and State
-    city_state = df['Address'].str.extract(r',\s*([^,]+),\s*([A-Z]{2})\s*\d{5}')
-    df['City'] = city_state[0].str.strip()
-    df['State'] = city_state[1].str.strip()
+    # Extract City and State ONLY if needed
+    if not ('City' in df.columns and 'State' in df.columns):
+        df[['City', 'State']] = df['Address'].apply(extract_city_state)
+    else:
+        # If both exist but City is all NaN or empty, extract
+        if df['City'].isnull().all() or df['City'].eq('').all():
+            df[['City', 'State']] = df['Address'].apply(extract_city_state)
     # Calculate price per sqft
     df['PricePerSqFt'] = df.apply(
         lambda row: round(row['Price'] / row['SqFt'], 2) if pd.notnull(row['Price']) and pd.notnull(row['SqFt']) and row['SqFt'] > 0 else None,
@@ -136,6 +165,10 @@ def main():
     ]
     # Only keep columns that exist in the DataFrame (handles older CSVs)
     df = df[[col for col in final_cols if col in df.columns]]
+    # Debug: print addresses missing city/state
+    if df['City'].isnull().any() or df['State'].isnull().any():
+        print("Some addresses are missing City or State. First few examples:")
+        print(df[df['City'].isnull() | df['State'].isnull()][['Address', 'City', 'State']].head(10))
     save_dataframe(df, selected_month, selected_year)
 
 if __name__ == "__main__":
